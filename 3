@@ -1,0 +1,466 @@
+{
+  "WordPress": {
+    "threshold": 9,
+    "margin": 3,
+
+    "html": [
+      ["wp-content/", 5, "strong"],
+      ["wp-includes/", 5, "strong"],
+      ["wp-admin", 4, "strong"],
+      ["wp-login.php", 5, "strong"],
+      ["wordpress", 2, "weak"],
+      ["wp-json", 4, "medium"]
+    ],
+
+    "meta": [
+      ["generator", "wordpress", 6, "strong"]
+    ],
+
+    "resources": [
+      ["/wp-content/", 5, "strong"],
+      ["/wp-includes/", 5, "strong"],
+      ["/wp-content/themes/", 5, "strong"],
+      ["/wp-content/plugins/", 5, "strong"],
+      ["/wp-content/uploads/", 3, "medium"],
+      ["/wp-includes/js/", 4, "medium"]
+    ],
+
+    "headers": [
+      ["x-generator", "wordpress", 6, "strong"]
+    ],
+
+    "cookies": [
+      ["wordpress_", 4, "medium"],
+      ["wp-settings-", 4, "medium"],
+      ["wp-settings-time-", 3, "medium"]
+    ],
+
+    "robots": [
+      ["/wp-admin/", 4, "medium"],
+      ["/wp-content/", 2, "weak"],
+      ["/wp-includes/", 2, "weak"]
+    ],
+
+    "favicon_hashes": [],
+
+    "probe": [
+      ["/wp-login.php", 4, "medium"],
+      ["/wp-json/", 4, "medium"]
+    ],
+
+    "admin_paths": [
+      "/wp-login.php"
+    ],
+
+    "negative": []
+  },
+
+  "Discuz!": {
+    "threshold": 9,
+    "margin": 3,
+
+    "html": [
+      ["discuz!", 6, "strong"],
+      ["discuz", 3, "medium"],
+      ["powered by discuz", 7, "strong"],
+      ["forum.php", 4, "medium"],
+      ["portal.php", 4, "medium"],
+      ["home.php", 3, "medium"]
+    ],
+
+    "meta": [
+      ["generator", "discuz", 6, "strong"],
+      ["keywords", "discuz", 3, "medium"]
+    ],
+
+    "resources": [
+      ["forum.php", 4, "medium"],
+      ["portal.php", 4, "medium"],
+      ["home.php", 3, "medium"],
+      ["/source/plugin/", 5, "strong"],
+      ["/template/default/", 3, "medium"],
+      ["/static/image/common/", 5, "strong"],
+      ["/static/image/", 2, "weak"]
+    ],
+
+    "headers": [],
+
+    "cookies": [
+      ["discuz_", 5, "strong"],
+      ["sid", 1, "weak"]
+    ],
+
+    "robots": [
+      ["forum.php", 2, "weak"]
+    ],
+
+    "favicon_hashes": [],
+
+    "probe": [
+      ["/forum.php", 3, "medium"],
+      ["/portal.php", 3, "medium"]
+    ],
+
+    "admin_paths": [],
+
+    "negative": []
+  },
+
+  "DedeCMS": {
+    "threshold": 9,
+    "margin": 3,
+
+    "html": [
+      ["dedecms", 6, "strong"],
+      ["织梦", 6, "strong"],
+      ["织梦内容管理系统", 7, "strong"],
+      ["power by dedecms", 7, "strong"],
+      ["/plus/", 3, "medium"],
+      ["/templets/", 3, "medium"]
+    ],
+
+    "meta": [
+      ["generator", "dedecms", 6, "strong"],
+      ["generator", "织梦", 6, "strong"]
+    ],
+
+    "resources": [
+      ["/plus/", 4, "medium"],
+      ["/templets/", 4, "medium"],
+      ["/include/", 2, "weak"],
+      ["/uploads/", 1, "weak"],
+      ["/images/", 1, "weak"]
+    ],
+
+    "headers": [],
+
+    "cookies": [],
+
+    "robots": [
+      ["/plus/", 3, "medium"],
+      ["/templets/", 3, "medium"]
+    ],
+
+    "favicon_hashes": [],
+
+    "probe": [
+      ["/plus/", 2, "weak"],
+      ["/include/", 2, "weak"]
+    ],
+
+    "admin_paths": [
+      "/dede/"
+    ],
+
+    "negative": []
+  },
+
+  "EmpireCMS": {
+    "threshold": 9,
+    "margin": 3,
+
+    "html": [
+      ["empirecms", 6, "strong"],
+      ["帝国cms", 6, "strong"],
+      ["帝国网站管理系统", 7, "strong"],
+      ["power by empirecms", 7, "strong"],
+      ["/e/data/", 5, "strong"],
+      ["/e/public/", 4, "medium"]
+    ],
+
+    "meta": [
+      ["generator", "empirecms", 6, "strong"],
+      ["generator", "帝国cms", 6, "strong"]
+    ],
+
+    "resources": [
+      ["/e/data/", 5, "strong"],
+      ["/e/public/", 4, "medium"],
+      ["/e/template/", 4, "medium"],
+      ["/e/", 2, "weak"]
+    ],
+
+    "headers": [],
+
+    "cookies": [],
+
+    "robots": [
+      ["/e/", 2, "weak"]
+    ],
+
+    "favicon_hashes": [],
+
+    "probe": [
+      ["/e/", 2, "weak"],
+      ["/e/data/", 3, "medium"]
+    ],
+
+    "admin_paths": [
+      "/e/admin/"
+    ],
+
+    "negative": []
+  },
+
+  "EyouCMS": {
+    "threshold": 9,
+    "margin": 3,
+
+    "html": [
+      ["eyoucms", 7, "strong"],
+      ["eyou cms", 7, "strong"],
+      ["易优cms", 7, "strong"],
+      ["易优内容管理系统", 7, "strong"],
+      ["易优", 2, "weak"]
+    ],
+
+    "meta": [
+      ["generator", "eyoucms", 7, "strong"],
+      ["generator", "易优cms", 7, "strong"],
+      ["generator", "易优", 3, "medium"]
+    ],
+
+    "resources": [
+      ["/template/pc/", 4, "medium"],
+      ["/template/mobile/", 4, "medium"],
+      ["/template/", 2, "weak"],
+      ["/uploads/", 1, "weak"]
+    ],
+
+    "headers": [],
+
+    "cookies": [
+      ["eyou_", 4, "medium"]
+    ],
+
+    "robots": [
+      ["eyoucms", 5, "strong"],
+      ["易优cms", 5, "strong"]
+    ],
+
+    "favicon_hashes": [],
+
+    "probe": [
+      ["/robots.txt", 2, "weak"]
+    ],
+
+    "admin_paths": [],
+
+    "negative": []
+  },
+
+  "PbootCMS": {
+    "threshold": 8,
+    "margin": 3,
+
+    "html": [
+      ["pbootcms", 7, "strong"],
+      ["pboot cms", 7, "strong"],
+      ["power by pbootcms", 7, "strong"]
+    ],
+
+    "meta": [
+      ["generator", "pbootcms", 7, "strong"],
+      ["generator", "pboot cms", 7, "strong"]
+    ],
+
+    "resources": [
+      ["/static/", 1, "weak"],
+      ["/template/", 1, "weak"]
+    ],
+
+    "headers": [],
+
+    "cookies": [],
+
+    "robots": [
+      ["pbootcms", 5, "strong"]
+    ],
+
+    "favicon_hashes": [],
+
+    "probe": [
+      ["/api.php", 3, "medium"],
+      ["/favicon.ico", 1, "weak"]
+    ],
+
+    "admin_paths": [
+      "/admin.php"
+    ],
+
+    "negative": []
+  },
+
+  "PHPCMS": {
+    "threshold": 9,
+    "margin": 3,
+
+    "html": [
+      ["phpcms", 7, "strong"],
+      ["phpcms v9", 7, "strong"],
+      ["powered by phpcms", 7, "strong"]
+    ],
+
+    "meta": [
+      ["generator", "phpcms", 7, "strong"]
+    ],
+
+    "resources": [
+      ["/caches/", 4, "medium"],
+      ["/statics/", 4, "medium"],
+      ["/statics/css/", 4, "medium"],
+      ["/statics/js/", 4, "medium"],
+      ["/api.php", 1, "weak"]
+    ],
+
+    "headers": [],
+
+    "cookies": [
+      ["phpcms", 3, "medium"]
+    ],
+
+    "robots": [],
+
+    "favicon_hashes": [],
+
+    "probe": [
+      ["/api.php", 2, "weak"]
+    ],
+
+    "admin_paths": [
+      "/index.php?m=admin"
+    ],
+
+    "negative": []
+  },
+
+  "XunruiCMS": {
+    "threshold": 9,
+    "margin": 3,
+
+    "html": [
+      ["迅睿cms", 7, "strong"],
+      ["迅睿cms", 7, "strong"],
+      ["finecms", 7, "strong"],
+      ["finecms", 7, "strong"],
+      ["迅睿", 3, "medium"],
+      ["powered by finecms", 7, "strong"]
+    ],
+
+    "meta": [
+      ["generator", "迅睿cms", 7, "strong"],
+      ["generator", "finecms", 7, "strong"]
+    ],
+
+    "resources": [
+      ["/dayrui/", 6, "strong"],
+      ["/static/assets/", 2, "weak"],
+      ["/dayrui/App/", 5, "strong"],
+      ["/dayrui/Config/", 5, "strong"]
+    ],
+
+    "headers": [],
+
+    "cookies": [],
+
+    "robots": [],
+
+    "favicon_hashes": [],
+
+    "probe": [
+      ["/dayrui/", 3, "medium"]
+    ],
+
+    "admin_paths": [],
+
+    "negative": []
+  },
+
+  "MetInfo": {
+    "threshold": 9,
+    "margin": 3,
+
+    "html": [
+      ["metinfo", 7, "strong"],
+      ["metinfo.cn", 7, "strong"],
+      ["米拓", 6, "strong"],
+      ["米拓企业建站系统", 7, "strong"],
+      ["power by metinfo", 7, "strong"]
+    ],
+
+    "meta": [
+      ["generator", "metinfo", 7, "strong"],
+      ["generator", "米拓", 6, "strong"]
+    ],
+
+    "resources": [
+      ["/app/system/", 5, "strong"],
+      ["/app/", 2, "weak"],
+      ["/public/", 1, "weak"],
+      ["/include/", 1, "weak"]
+    ],
+
+    "headers": [],
+
+    "cookies": [],
+
+    "robots": [],
+
+    "favicon_hashes": [],
+
+    "probe": [
+      ["/app/system/", 3, "medium"]
+    ],
+
+    "admin_paths": [],
+
+    "negative": []
+  },
+
+  "Z-BlogPHP": {
+    "threshold": 9,
+    "margin": 3,
+
+    "html": [
+      ["z-blogphp", 7, "strong"],
+      ["zblogphp", 7, "strong"],
+      ["z-blog", 4, "medium"],
+      ["powered by z-blogphp", 7, "strong"]
+    ],
+
+    "meta": [
+      ["generator", "z-blogphp", 7, "strong"],
+      ["generator", "zblogphp", 7, "strong"]
+    ],
+
+    "resources": [
+      ["/zb_users/", 6, "strong"],
+      ["/zb_system/", 6, "strong"],
+      ["/zb_users/theme/", 5, "strong"],
+      ["/zb_users/plugin/", 5, "strong"],
+      ["/zb_system/script/", 4, "medium"],
+      ["/zb_system/function/", 4, "medium"]
+    ],
+
+    "headers": [],
+
+    "cookies": [
+      ["zblog", 4, "medium"]
+    ],
+
+    "robots": [
+      ["/zb_users/", 3, "medium"],
+      ["/zb_system/", 3, "medium"]
+    ],
+
+    "favicon_hashes": [],
+
+    "probe": [
+      ["/zb_system/", 3, "medium"]
+    ],
+
+    "admin_paths": [],
+
+    "negative": []
+  }
+}
