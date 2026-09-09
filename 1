@@ -1,0 +1,2010 @@
+import asyncio
+import base64
+import hashlib
+import json
+import re
+import time
+from pathlib import Path
+from urllib.parse import urljoin, urlparse
+
+import aiohttp
+from bs4 import BeautifulSoup
+
+
+# ============================================================
+# CMS Scanner V4
+# 仅用于自己拥有或明确获授权的资产盘点。
+# 不进行登录、爆破、绕过或漏洞利用。
+# ============================================================
+
+BASE_DIR = Path(__file__).resolve().parent
+
+URLS_FILE = BASE_DIR / "urls.txt"
+FINGERPRINT_FILE = BASE_DIR / "cms_fingerprints.json"
+
+RESULT_DIR = BASE_DIR / "results"
+PROGRESS_FILE = BASE_DIR / "progress.txt"
+DETAILS_FILE = RESULT_DIR / "details.jsonl"
+
+CONCURRENCY = 30
+TIMEOUT = 10
+RETRIES = 1
+
+# 单个 HTTP 响应最多读取 2 MB
+MAX_BODY_BYTES = 2 * 1024 * 1024
+
+# 每个站点最多执行多少个 probe
+MAX_PROBES_PER_DOMAIN = 12
+
+USER_AGENT = "Authorized-CMS-Inventory/4.0"
+
+RESULT_DIR.mkdir(exist_ok=True)
+
+
+# ============================================================
+# 基础
+# ============================================================
+
+def normalize_url(raw):
+    raw = raw.strip()
+
+    if not raw or raw.startswith("#"):
+        return None
+
+    if not re.match(r"^https?://", raw, re.I):
+        raw = "https://" + raw
+
+    return raw.rstrip("/")
+
+
+def load_urls():
+    if not URLS_FILE.exists():
+        raise FileNotFoundError("找不到 urls.txt")
+
+    result = []
+    seen = set()
+
+    for line in URLS_FILE.read_text(
+        encoding="utf-8-sig",
+        errors="ignore"
+    ).splitlines():
+
+        url = normalize_url(line)
+
+        if url and url not in seen:
+            seen.add(url)
+            result.append(url)
+
+    return result
+
+
+def load_fingerprints():
+    if not FINGERPRINT_FILE.exists():
+        raise FileNotFoundError(
+            "找不到 cms_fingerprints.json"
+        )
+
+    with FINGERPRINT_FILE.open(
+        "r",
+        encoding="utf-8"
+    ) as f:
+        return json.load(f)
+
+
+def load_progress():
+    if not PROGRESS_FILE.exists():
+        return set()
+
+    return {
+        x.strip()
+        for x in PROGRESS_FILE.read_text(
+            encoding="utf-8",
+            errors="ignore"
+        ).splitlines()
+        if x.strip()
+    }
+
+
+def append_line(path, text):
+    with path.open(
+        "a",
+        encoding="utf-8"
+    ) as f:
+        f.write(text + "\n")
+
+
+# ============================================================
+# MurmurHash3
+# 用于常见 favicon hash 指纹
+# ============================================================
+
+def murmur3_32(data, seed=0):
+    data = bytes(data)
+
+    length = len(data)
+
+    h1 = seed & 0xFFFFFFFF
+
+    c1 = 0xCC9E2D51
+    c2 = 0x1B873593
+
+    rounded_end = length & 0xFFFFFFFC
+
+    for i in range(0, rounded_end, 4):
+
+        k1 = (
+            data[i]
+            | (data[i + 1] << 8)
+            | (data[i + 2] << 16)
+            | (data[i + 3] << 24)
+        )
+
+        k1 = (k1 * c1) & 0xFFFFFFFF
+
+        k1 = (
+            (k1 << 15)
+            | (k1 >> 17)
+        ) & 0xFFFFFFFF
+
+        k1 = (k1 * c2) & 0xFFFFFFFF
+
+        h1 ^= k1
+
+        h1 = (
+            (h1 << 13)
+            | (h1 >> 19)
+        ) & 0xFFFFFFFF
+
+        h1 = (
+            h1 * 5
+            + 0xE6546B64
+        ) & 0xFFFFFFFF
+
+    k1 = 0
+
+    tail = data[rounded_end:]
+
+    for i, b in enumerate(tail):
+        k1 |= b << (8 * i)
+
+    if tail:
+
+        k1 = (k1 * c1) & 0xFFFFFFFF
+
+        k1 = (
+            (k1 << 15)
+            | (k1 >> 17)
+        ) & 0xFFFFFFFF
+
+        k1 = (k1 * c2) & 0xFFFFFFFF
+
+        h1 ^= k1
+
+    h1 ^= length
+
+    h1 ^= h1 >> 16
+
+    h1 = (
+        h1 * 0x85EBCA6B
+    ) & 0xFFFFFFFF
+
+    h1 ^= h1 >> 13
+
+    h1 = (
+        h1 * 0xC2B2AE35
+    ) & 0xFFFFFFFF
+
+    h1 ^= h1 >> 16
+
+    if h1 & 0x80000000:
+        return h1 - 0x100000000
+
+    return h1
+
+
+def favicon_hashes(data):
+
+    values = set()
+
+    if not data:
+        return values
+
+    # MD5
+    values.add(
+        hashlib.md5(data).hexdigest()
+    )
+
+    # Base64
+    b64 = base64.b64encode(
+        data
+    ).decode("ascii")
+
+    # 常见 favicon hash 格式
+    wrapped = "\n".join(
+        b64[i:i + 76]
+        for i in range(
+            0,
+            len(b64),
+            76
+        )
+    )
+
+    values.add(
+        str(
+            murmur3_32(
+                wrapped.encode("utf-8")
+            )
+        )
+    )
+
+    # 另一种兼容格式
+    values.add(
+        str(
+            murmur3_32(
+                b64.encode("utf-8")
+            )
+        )
+    )
+
+    return values
+
+
+# ============================================================
+# 指纹规则解析
+# ============================================================
+
+def rule_parts(rule):
+
+    if not isinstance(rule, list):
+        return None
+
+    # ["keyword", weight]
+    if len(rule) == 2:
+        return (
+            str(rule[0]),
+            None,
+            float(rule[1]),
+            None
+        )
+
+    # ["keyword", weight, level]
+    if len(rule) == 3:
+
+        if isinstance(
+            rule[1],
+            (int, float)
+        ):
+            return (
+                str(rule[0]),
+                None,
+                float(rule[1]),
+                str(rule[2])
+            )
+
+        return (
+            str(rule[0]),
+            str(rule[1]),
+            1,
+            None
+        )
+
+    # ["field", "keyword", weight, level]
+    if len(rule) >= 4:
+        return (
+            str(rule[0]),
+            str(rule[1]),
+            float(rule[2]),
+            str(rule[3])
+        )
+
+    return None
+
+
+def get_level(weight, explicit=None):
+
+    if explicit:
+        return explicit.lower()
+
+    if weight >= 5:
+        return "strong"
+
+    if weight >= 3:
+        return "medium"
+
+    return "weak"
+
+
+# ============================================================
+# URL / HTML
+# ============================================================
+
+def normalize_resource_url(base_url, raw):
+
+    raw = (raw or "").strip()
+
+    if not raw:
+        return ""
+
+    return urljoin(
+        base_url + "/",
+        raw
+    ).lower()
+
+
+def extract_evidence(
+    url,
+    body,
+    headers,
+    cookies
+):
+
+    soup = BeautifulSoup(
+        body,
+        "html.parser"
+    )
+
+    # 页面正文
+    text = soup.get_text(
+        " ",
+        strip=True
+    )
+
+    # HTML 注释
+    comments = []
+
+    for item in soup.find_all(
+        string=lambda x:
+        isinstance(
+            x,
+            type(soup.string)
+        )
+    ):
+        comments.append(str(item))
+
+    # Meta
+    meta_values = []
+
+    for tag in soup.find_all("meta"):
+
+        for key in (
+            "name",
+            "content",
+            "property",
+            "http-equiv"
+        ):
+
+            value = tag.get(key)
+
+            if value:
+                meta_values.append(
+                    str(value)
+                )
+
+    # JS / CSS / 图片 / iframe
+    resources = []
+
+    resource_types = (
+        ("script", "src"),
+        ("link", "href"),
+        ("img", "src"),
+        ("iframe", "src"),
+        ("source", "src"),
+    )
+
+    for tag_name, attr in resource_types:
+
+        for tag in soup.find_all(tag_name):
+
+            value = tag.get(attr)
+
+            if value:
+
+                resources.append(
+                    normalize_resource_url(
+                        url,
+                        value
+                    )
+                )
+
+    title = ""
+
+    if soup.title:
+        title = soup.title.get_text(
+            " ",
+            strip=True
+        )
+
+    return {
+
+        "html": (
+            text
+            + " "
+            + " ".join(comments)
+        ).lower(),
+
+        "meta": " ".join(
+            meta_values
+        ).lower(),
+
+        "resources": resources,
+
+        "headers": {
+            str(k).lower():
+            str(v).lower()
+            for k, v in headers.items()
+        },
+
+        "cookies": " ".join(
+            str(x).lower()
+            for x in cookies.keys()
+        ),
+
+        "title": title.lower(),
+
+        "robots": "",
+
+        "favicon_hashes": set(),
+
+        "favicon_url": ""
+    }
+
+
+# ============================================================
+# Scanner
+# ============================================================
+
+class Scanner:
+
+    def __init__(self, fingerprints):
+
+        self.fingerprints = fingerprints
+
+        self.timeout = aiohttp.ClientTimeout(
+            total=TIMEOUT
+        )
+
+        self.connector = aiohttp.TCPConnector(
+            limit=CONCURRENCY,
+            limit_per_host=4,
+            ttl_dns_cache=300
+        )
+
+
+    # --------------------------------------------------------
+    # HTTP
+    # --------------------------------------------------------
+
+    async def fetch(
+        self,
+        session,
+        url,
+        method="GET",
+        fallback_http=True
+    ):
+
+        last_error = ""
+
+        for attempt in range(
+            RETRIES + 1
+        ):
+
+            try:
+
+                started = time.perf_counter()
+
+                async with session.request(
+                    method,
+                    url,
+                    allow_redirects=True,
+                    timeout=self.timeout,
+                    headers={
+                        "User-Agent":
+                        USER_AGENT
+                    }
+                ) as response:
+
+                    chunks = []
+
+                    size = 0
+
+                    if method.upper() != "HEAD":
+
+                        async for chunk in response.content.iter_chunked(
+                            65536
+                        ):
+
+                            if not chunk:
+                                break
+
+                            remaining = (
+                                MAX_BODY_BYTES
+                                - size
+                            )
+
+                            if remaining <= 0:
+                                break
+
+                            chunk = chunk[
+                                :remaining
+                            ]
+
+                            chunks.append(
+                                chunk
+                            )
+
+                            size += len(chunk)
+
+                            if size >= MAX_BODY_BYTES:
+                                break
+
+                    body = b"".join(
+                        chunks
+                    )
+
+                    elapsed = (
+                        time.perf_counter()
+                        - started
+                    )
+
+                    return {
+
+                        "ok": True,
+
+                        "url": str(
+                            response.url
+                        ),
+
+                        "status":
+                        response.status,
+
+                        "headers":
+                        dict(
+                            response.headers
+                        ),
+
+                        "cookies":
+                        response.cookies,
+
+                        "body": body,
+
+                        "elapsed":
+                        elapsed,
+
+                        "error": ""
+                    }
+
+            except Exception as e:
+
+                last_error = str(e)
+
+                if attempt < RETRIES:
+
+                    await asyncio.sleep(
+                        0.25
+                        * (attempt + 1)
+                    )
+
+        # HTTPS 失败 → HTTP
+        if (
+            fallback_http
+            and urlparse(url).scheme.lower()
+            == "https"
+        ):
+
+            parsed = urlparse(url)
+
+            http_url = (
+                "http://"
+                + parsed.netloc
+                + parsed.path
+            )
+
+            if parsed.query:
+                http_url += (
+                    "?"
+                    + parsed.query
+                )
+
+            return await self.fetch(
+                session,
+                http_url,
+                method=method,
+                fallback_http=False
+            )
+
+        return {
+
+            "ok": False,
+            "url": url,
+            "status": 0,
+            "headers": {},
+            "cookies": {},
+            "body": b"",
+            "elapsed": 0,
+            "error":
+            last_error
+            or "request failed"
+        }
+
+
+    # --------------------------------------------------------
+    # Favicon
+    # --------------------------------------------------------
+
+    async def favicon_evidence(
+        self,
+        session,
+        page_url,
+        evidence
+    ):
+
+        favicon_url = urljoin(
+            page_url + "/",
+            "/favicon.ico"
+        )
+
+        result = await self.fetch(
+            session,
+            favicon_url,
+            fallback_http=False
+        )
+
+        if (
+            result["ok"]
+            and result["status"] == 200
+            and result["body"]
+        ):
+
+            evidence[
+                "favicon_hashes"
+            ] = favicon_hashes(
+                result["body"]
+            )
+
+            evidence[
+                "favicon_url"
+            ] = result["url"]
+
+        else:
+
+            evidence[
+                "favicon_hashes"
+            ] = set()
+
+            evidence[
+                "favicon_url"
+            ] = ""
+
+
+    # --------------------------------------------------------
+    # robots.txt
+    # --------------------------------------------------------
+
+    async def robots_evidence(
+        self,
+        session,
+        page_url,
+        evidence
+    ):
+
+        robots_url = urljoin(
+            page_url + "/",
+            "/robots.txt"
+        )
+
+        result = await self.fetch(
+            session,
+            robots_url,
+            fallback_http=False
+        )
+
+        if (
+            result["ok"]
+            and result["status"] == 200
+        ):
+
+            evidence[
+                "robots"
+            ] = result[
+                "body"
+            ].decode(
+                "utf-8",
+                errors="ignore"
+            ).lower()
+
+        else:
+
+            evidence[
+                "robots"
+            ] = ""
+
+
+    # --------------------------------------------------------
+    # 单字段匹配
+    # --------------------------------------------------------
+
+    def match_field(
+        self,
+        field,
+        rules,
+        evidence,
+        hits,
+        score
+    ):
+
+        for rule in rules or []:
+
+            parsed = rule_parts(rule)
+
+            if not parsed:
+                continue
+
+            a, b, weight, explicit_level = parsed
+
+            level = get_level(
+                weight,
+                explicit_level
+            )
+
+            matched = False
+
+            feature = ""
+
+            # HTML / Meta / Title
+            if field in (
+                "html",
+                "meta",
+                "title"
+            ):
+
+                needle = a.lower()
+
+                matched = (
+                    needle
+                    in evidence.get(
+                        field,
+                        ""
+                    )
+                )
+
+                feature = needle
+
+            # Resources
+            elif field == "resources":
+
+                needle = a.lower()
+
+                matched = any(
+                    needle in resource
+                    for resource
+                    in evidence[
+                        "resources"
+                    ]
+                )
+
+                feature = needle
+
+            # Headers
+            elif field == "headers":
+
+                header_name = a.lower()
+
+                expected = (
+                    b or ""
+                ).lower()
+
+                actual = evidence[
+                    "headers"
+                ].get(
+                    header_name,
+                    ""
+                )
+
+                if expected:
+
+                    matched = (
+                        expected
+                        in actual
+                    )
+
+                else:
+
+                    matched = bool(
+                        actual
+                    )
+
+                feature = (
+                    header_name
+                    + "="
+                    + expected
+                )
+
+            # Cookies
+            elif field == "cookies":
+
+                needle = a.lower()
+
+                matched = (
+                    needle
+                    in evidence[
+                        "cookies"
+                    ]
+                )
+
+                feature = needle
+
+            # Favicon Hash
+            elif field == "favicon_hashes":
+
+                needle = a.strip()
+
+                matched = (
+                    needle
+                    in evidence.get(
+                        "favicon_hashes",
+                        set()
+                    )
+                )
+
+                feature = needle
+
+            if not matched:
+                continue
+
+            # 同一规则只计一次
+            rule_id = (
+                field
+                + "|"
+                + feature
+                + "|"
+                + str(weight)
+            )
+
+            if rule_id in hits:
+                continue
+
+            hits[rule_id] = {
+
+                "field": field,
+
+                "feature": feature,
+
+                "weight": weight,
+
+                "level": level
+            }
+
+            score += weight
+
+        return score
+
+
+    # --------------------------------------------------------
+    # Negative fingerprints
+    # --------------------------------------------------------
+
+    def apply_negative(
+        self,
+        fp,
+        evidence,
+        score,
+        hits
+    ):
+
+        for rule in (
+            fp.get(
+                "negative",
+                []
+            )
+            or []
+        ):
+
+            if not isinstance(
+                rule,
+                list
+            ):
+                continue
+
+            if len(rule) == 2:
+
+                field, keyword = rule
+
+                penalty = 3
+
+            elif len(rule) >= 3:
+
+                field, keyword, penalty = (
+                    rule[:3]
+                )
+
+            else:
+
+                continue
+
+            field = str(field)
+
+            keyword = str(
+                keyword
+            ).lower()
+
+            matched = False
+
+            if (
+                field in evidence
+                and isinstance(
+                    evidence[field],
+                    str
+                )
+            ):
+
+                matched = (
+                    keyword
+                    in evidence[field]
+                )
+
+            elif field == "resources":
+
+                matched = any(
+                    keyword in x
+                    for x in evidence[
+                        "resources"
+                    ]
+                )
+
+            elif field == "headers":
+
+                matched = any(
+                    keyword in value
+                    for value in evidence[
+                        "headers"
+                    ].values()
+                )
+
+            elif field == "cookies":
+
+                matched = (
+                    keyword
+                    in evidence[
+                        "cookies"
+                    ]
+                )
+
+            if not matched:
+                continue
+
+            key = (
+                "negative|"
+                + field
+                + "|"
+                + keyword
+            )
+
+            if key in hits:
+                continue
+
+            penalty = abs(
+                float(penalty)
+            )
+
+            hits[key] = {
+
+                "field":
+                "negative",
+
+                "feature":
+                f"{field}:{keyword}",
+
+                "weight":
+                -penalty,
+
+                "level":
+                "negative"
+            }
+
+            score -= penalty
+
+        return score
+
+
+    # --------------------------------------------------------
+    # 被动规则评分
+    # --------------------------------------------------------
+
+    def score_all(
+        self,
+        evidence
+    ):
+
+        scores = {}
+
+        hit_details = {}
+
+        for cms, fp in (
+            self.fingerprints.items()
+        ):
+
+            score = 0
+
+            hits = {}
+
+            score = self.match_field(
+                "html",
+                fp.get("html"),
+                evidence,
+                hits,
+                score
+            )
+
+            score = self.match_field(
+                "meta",
+                fp.get("meta"),
+                evidence,
+                hits,
+                score
+            )
+
+            score = self.match_field(
+                "resources",
+                fp.get("resources"),
+                evidence,
+                hits,
+                score
+            )
+
+            score = self.match_field(
+                "headers",
+                fp.get("headers"),
+                evidence,
+                hits,
+                score
+            )
+
+            score = self.match_field(
+                "cookies",
+                fp.get("cookies"),
+                evidence,
+                hits,
+                score
+            )
+
+            score = self.match_field(
+                "favicon_hashes",
+                fp.get(
+                    "favicon_hashes"
+                ),
+                evidence,
+                hits,
+                score
+            )
+
+            # robots
+            for rule in (
+                fp.get(
+                    "robots",
+                    []
+                )
+                or []
+            ):
+
+                parsed = rule_parts(rule)
+
+                if not parsed:
+                    continue
+
+                keyword, _, weight, explicit_level = (
+                    parsed
+                )
+
+                if (
+                    keyword.lower()
+                    not in evidence.get(
+                        "robots",
+                        ""
+                    )
+                ):
+                    continue
+
+                key = (
+                    "robots|"
+                    + keyword.lower()
+                    + "|"
+                    + str(weight)
+                )
+
+                if key in hits:
+                    continue
+
+                hits[key] = {
+
+                    "field":
+                    "robots",
+
+                    "feature":
+                    keyword.lower(),
+
+                    "weight":
+                    weight,
+
+                    "level":
+                    get_level(
+                        weight,
+                        explicit_level
+                    )
+                }
+
+                score += weight
+
+            # Negative
+            score = self.apply_negative(
+                fp,
+                evidence,
+                score,
+                hits
+            )
+
+            scores[cms] = score
+
+            hit_details[cms] = list(
+                hits.values()
+            )
+
+        return scores, hit_details
+
+
+    # --------------------------------------------------------
+    # 最终判定
+    # --------------------------------------------------------
+
+    def decision(
+        self,
+        scores
+    ):
+
+        ordered = sorted(
+            scores.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+
+        if not ordered:
+
+            return (
+                "Unknown",
+                0,
+                0,
+                "Unknown"
+            )
+
+        best_cms, best_score = (
+            ordered[0]
+        )
+
+        second_score = (
+            ordered[1][1]
+            if len(ordered) > 1
+            else 0
+        )
+
+        margin = (
+            best_score
+            - second_score
+        )
+
+        fp = self.fingerprints[
+            best_cms
+        ]
+
+        threshold = float(
+            fp.get(
+                "threshold",
+                999999
+            )
+        )
+
+        required_margin = float(
+            fp.get(
+                "margin",
+                0
+            )
+        )
+
+        if (
+            best_score < threshold
+            or margin < required_margin
+        ):
+
+            return (
+                "Unknown",
+                best_score,
+                margin,
+                "Unknown"
+            )
+
+        if (
+            best_score
+            >= threshold + 6
+            and margin
+            >= required_margin + 3
+        ):
+
+            confidence = "High"
+
+        elif (
+            best_score
+            >= threshold + 2
+        ):
+
+            confidence = "Medium"
+
+        else:
+
+            confidence = "Low"
+
+        return (
+            best_cms,
+            best_score,
+            margin,
+            confidence
+        )
+
+
+    # --------------------------------------------------------
+    # Probe
+    # --------------------------------------------------------
+
+    async def probes(
+        self,
+        session,
+        page_url,
+        candidates
+    ):
+
+        probe_list = []
+
+        seen = set()
+
+        for cms, fp in candidates:
+
+            for item in (
+                fp.get(
+                    "probe",
+                    []
+                )
+                or []
+            ):
+
+                if (
+                    not isinstance(
+                        item,
+                        list
+                    )
+                    or not item
+                ):
+                    continue
+
+                path = str(
+                    item[0]
+                )
+
+                if path in seen:
+                    continue
+
+                seen.add(path)
+
+                weight = (
+                    float(item[1])
+                    if len(item) > 1
+                    else 1
+                )
+
+                level = (
+                    str(item[2])
+                    if len(item) > 2
+                    else get_level(
+                        weight
+                    )
+                )
+
+                probe_list.append(
+                    (
+                        cms,
+                        path,
+                        weight,
+                        level
+                    )
+                )
+
+        probe_list = probe_list[
+            :MAX_PROBES_PER_DOMAIN
+        ]
+
+        async def check(
+            cms,
+            path,
+            weight,
+            level
+        ):
+
+            target = urljoin(
+                page_url + "/",
+                path
+            )
+
+            result = await self.fetch(
+                session,
+                target,
+                fallback_http=False
+            )
+
+            return {
+
+                "cms": cms,
+
+                "path": path,
+
+                "status":
+                result["status"],
+
+                "url":
+                result["url"],
+
+                "weight":
+                weight,
+
+                "level":
+                level,
+
+                "exists":
+                bool(
+                    result["ok"]
+                    and
+                    200
+                    <= result["status"]
+                    < 400
+                )
+            }
+
+        if not probe_list:
+            return []
+
+        return await asyncio.gather(
+            *(
+                check(
+                    cms,
+                    path,
+                    weight,
+                    level
+                )
+                for (
+                    cms,
+                    path,
+                    weight,
+                    level
+                )
+                in probe_list
+            )
+        )
+
+
+    # --------------------------------------------------------
+    # 后台入口：只检查存在性
+    # --------------------------------------------------------
+
+    async def admin_existence(
+        self,
+        session,
+        page_url,
+        candidates
+    ):
+
+        paths = []
+
+        seen = set()
+
+        for cms, fp in candidates:
+
+            for path in (
+                fp.get(
+                    "admin_paths",
+                    []
+                )
+                or []
+            ):
+
+                path = str(path)
+
+                if path in seen:
+                    continue
+
+                seen.add(path)
+
+                paths.append(
+                    (
+                        cms,
+                        path
+                    )
+                )
+
+        paths = paths[
+            :MAX_PROBES_PER_DOMAIN
+        ]
+
+        async def check(
+            cms,
+            path
+        ):
+
+            target = urljoin(
+                page_url + "/",
+                path
+            )
+
+            result = await self.fetch(
+                session,
+                target,
+                fallback_http=False
+            )
+
+            return {
+
+                "cms": cms,
+
+                "path": path,
+
+                "status":
+                result["status"],
+
+                "exists":
+                bool(
+                    result["ok"]
+                    and
+                    200
+                    <= result["status"]
+                    < 400
+                )
+            }
+
+        if not paths:
+            return []
+
+        return await asyncio.gather(
+            *(
+                check(
+                    cms,
+                    path
+                )
+                for cms, path
+                in paths
+            )
+        )
+
+
+    # --------------------------------------------------------
+    # 单站点扫描
+    # --------------------------------------------------------
+
+    async def scan(
+        self,
+        session,
+        original_url
+    ):
+
+        started = time.perf_counter()
+
+        page = await self.fetch(
+            session,
+            original_url
+        )
+
+        if not page["ok"]:
+
+            return {
+
+                "url":
+                original_url,
+
+                "cms":
+                "Unknown",
+
+                "score":
+                0,
+
+                "margin":
+                0,
+
+                "confidence":
+                "Unknown",
+
+                "hits":
+                [],
+
+                "candidate_scores":
+                {},
+
+                "unknown_reason":
+                "首页请求失败: "
+                + page["error"],
+
+                "elapsed":
+                round(
+                    time.perf_counter()
+                    - started,
+                    3
+                )
+            }
+
+        page_url = page["url"]
+
+        body_text = page[
+            "body"
+        ].decode(
+            "utf-8",
+            errors="ignore"
+        )
+
+        evidence = extract_evidence(
+            page_url,
+            body_text,
+            page["headers"],
+            page["cookies"]
+        )
+
+        # 每个站点都执行 robots
+        await self.robots_evidence(
+            session,
+            page_url,
+            evidence
+        )
+
+        # 每个站点都执行 favicon
+        await self.favicon_evidence(
+            session,
+            page_url,
+            evidence
+        )
+
+        scores, hits = self.score_all(
+            evidence
+        )
+
+        # 先根据被动指纹选最有希望的候选
+        ordered = sorted(
+            scores.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+
+        candidates = [
+            (
+                cms,
+                self.fingerprints[cms]
+            )
+            for cms, _ in ordered[:3]
+        ]
+
+        # probe
+        probe_results = await self.probes(
+            session,
+            page_url,
+            candidates
+        )
+
+        # 后台入口存在性
+        admin_results = await self.admin_existence(
+            session,
+            page_url,
+            candidates
+        )
+
+        # probe 加分
+        for item in probe_results:
+
+            if not item["exists"]:
+                continue
+
+            cms = item["cms"]
+
+            feature = (
+                "probe:"
+                + item["path"]
+            )
+
+            if not any(
+                x["feature"]
+                == feature
+                for x in hits.get(
+                    cms,
+                    []
+                )
+            ):
+
+                hits.setdefault(
+                    cms,
+                    []
+                ).append({
+
+                    "field":
+                    "probe",
+
+                    "feature":
+                    feature,
+
+                    "weight":
+                    item["weight"],
+
+                    "level":
+                    item["level"]
+                })
+
+                scores[cms] += (
+                    item["weight"]
+                )
+
+        # 后台入口存在性只作为辅助证据
+        for item in admin_results:
+
+            if not item["exists"]:
+                continue
+
+            cms = item["cms"]
+
+            feature = (
+                "admin_exists:"
+                + item["path"]
+            )
+
+            if not any(
+                x["feature"]
+                == feature
+                for x in hits.get(
+                    cms,
+                    []
+                )
+            ):
+
+                hits.setdefault(
+                    cms,
+                    []
+                ).append({
+
+                    "field":
+                    "admin_existence",
+
+                    "feature":
+                    feature,
+
+                    "weight":
+                    2,
+
+                    "level":
+                    "medium"
+                })
+
+                scores[cms] += 2
+
+        # 最终判定
+        cms, score, margin, confidence = (
+            self.decision(scores)
+        )
+
+        candidate_scores = dict(
+            sorted(
+                scores.items(),
+                key=lambda x: x[1],
+                reverse=True
+            )
+        )
+
+        if cms == "Unknown":
+
+            if candidate_scores:
+
+                top_cms = next(
+                    iter(
+                        candidate_scores
+                    )
+                )
+
+                reason = (
+                    "最高候选="
+                    + top_cms
+                    + "，最高分="
+                    + str(score)
+                    + "，分差="
+                    + str(margin)
+                    + "；"
+                    "未达到阈值或与第二名区分度不足"
+                )
+
+            else:
+
+                reason = (
+                    "没有任何有效指纹命中"
+                )
+
+        else:
+
+            reason = ""
+
+        return {
+
+            "url":
+            original_url,
+
+            "final_url":
+            page_url,
+
+            "status":
+            page["status"],
+
+            "cms":
+            cms,
+
+            "score":
+            score,
+
+            "margin":
+            margin,
+
+            "confidence":
+            confidence,
+
+            "hits":
+            hits.get(
+                cms,
+                []
+            ),
+
+            "candidate_scores":
+            candidate_scores,
+
+            "unknown_reason":
+            reason,
+
+            "probe_results":
+            probe_results,
+
+            "admin_results":
+            admin_results,
+
+            "favicon_hashes":
+            sorted(
+                evidence.get(
+                    "favicon_hashes",
+                    set()
+                )
+            ),
+
+            "elapsed":
+            round(
+                time.perf_counter()
+                - started,
+                3
+            )
+        }
+
+
+# ============================================================
+# 主程序
+# ============================================================
+
+async def main():
+
+    urls = load_urls()
+
+    fingerprints = (
+        load_fingerprints()
+    )
+
+    completed = load_progress()
+
+    targets = [
+        url
+        for url in urls
+        if url not in completed
+    ]
+
+    print("=" * 65)
+    print("CMS Scanner V4")
+    print("=" * 65)
+
+    print(
+        f"总 URL   : {len(urls)}"
+    )
+
+    print(
+        f"已完成   : {len(completed)}"
+    )
+
+    print(
+        f"待扫描   : {len(targets)}"
+    )
+
+    print(
+        f"并发     : {CONCURRENCY}"
+    )
+
+    print("=" * 65)
+
+    scanner = Scanner(
+        fingerprints
+    )
+
+    headers = {
+
+        "User-Agent":
+        USER_AGENT,
+
+        "Accept":
+        "text/html,application/xhtml+xml,"
+        "application/xml;q=0.9,*/*;q=0.8"
+    }
+
+    async with aiohttp.ClientSession(
+        connector=scanner.connector,
+        timeout=scanner.timeout,
+        headers=headers
+    ) as session:
+
+        semaphore = asyncio.Semaphore(
+            CONCURRENCY
+        )
+
+        async def worker(url):
+
+            async with semaphore:
+
+                try:
+
+                    return await scanner.scan(
+                        session,
+                        url
+                    )
+
+                except Exception as e:
+
+                    return {
+
+                        "url":
+                        url,
+
+                        "cms":
+                        "Unknown",
+
+                        "score":
+                        0,
+
+                        "margin":
+                        0,
+
+                        "confidence":
+                        "Unknown",
+
+                        "hits":
+                        [],
+
+                        "candidate_scores":
+                        {},
+
+                        "unknown_reason":
+                        "程序异常: "
+                        + str(e),
+
+                        "elapsed":
+                        0
+                    }
+
+        # 分批，不一次创建几十万个任务
+        batch_size = (
+            CONCURRENCY * 4
+        )
+
+        for start in range(
+            0,
+            len(targets),
+            batch_size
+        ):
+
+            batch = targets[
+                start:
+                start + batch_size
+            ]
+
+            results = await asyncio.gather(
+                *(
+                    worker(url)
+                    for url in batch
+                )
+            )
+
+            for result in results:
+
+                url = result[
+                    "url"
+                ]
+
+                cms = result[
+                    "cms"
+                ]
+
+                # CMS TXT
+                if cms == "Unknown":
+
+                    append_line(
+                        RESULT_DIR
+                        / "Unknown.txt",
+                        url
+                    )
+
+                    append_line(
+                        RESULT_DIR
+                        / "Unknown_Details.txt",
+                        json.dumps(
+                            result,
+                            ensure_ascii=False
+                        )
+                    )
+
+                else:
+
+                    append_line(
+                        RESULT_DIR
+                        / f"{cms}.txt",
+                        url
+                    )
+
+                # JSONL 详细记录
+                append_line(
+                    DETAILS_FILE,
+                    json.dumps(
+                        result,
+                        ensure_ascii=False
+                    )
+                )
+
+                # 断点记录
+                append_line(
+                    PROGRESS_FILE,
+                    url
+                )
+
+                print(
+                    f"[{cms:<12}] "
+                    f"score="
+                    f"{result.get('score', 0):<4} "
+                    f"margin="
+                    f"{result.get('margin', 0):<4} "
+                    f"{url}"
+                )
+
+    print()
+    print("=" * 65)
+    print("扫描完成")
+    print(
+        f"结果目录: {RESULT_DIR}"
+    )
+    print(
+        f"详细记录: {DETAILS_FILE}"
+    )
+    print("=" * 65)
+
+
+# ============================================================
+# 启动
+# ============================================================
+
+if __name__ == "__main__":
+
+    try:
+
+        asyncio.run(
+            main()
+        )
+
+    except KeyboardInterrupt:
+
+        print()
+        print(
+            "已停止。"
+            "重新运行 start.bat 会从 progress.txt 继续。"
+        )
