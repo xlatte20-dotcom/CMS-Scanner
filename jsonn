@@ -1,0 +1,173 @@
+[
+  {
+    "name": "WordPress 🇺🇸",
+    "file_name": "WordPress.txt",
+    "min_score": 9,
+    "features": [
+      {"pattern": "wp-content/", "weight": 5},
+      {"pattern": "wp-includes/", "weight": 5},
+      {"pattern": "wp-admin", "weight": 4},
+      {"pattern": "wp-login.php", "weight": 5},
+      {"pattern": "wordpress", "weight": 2},
+      {"pattern": "wp-json", "weight": 4},
+      {"pattern": "x-generator: wordpress", "weight": 6},
+      {"pattern": "/wp-content/themes/", "weight": 5},
+      {"pattern": "/wp-content/plugins/", "weight": 5}
+    ],
+    "headers": [
+      {"pattern": "x-generator: wordpress", "weight": 6},
+      {"pattern": "set-cookie: wordpress_", "weight": 4}
+    ],
+    "favicon_hashes": ["116323821", "-67025810", "162983192"],
+    "api_paths": ["/wp-login.php", "/wp-json/"],
+    "api_keywords": ["wordpress", "namespaces"]
+  },
+  {
+    "name": "Discuz! 🇨🇳",
+    "file_name": "Discuz.txt",
+    "min_score": 9,
+    "features": [
+      {"pattern": "discuz!", "weight": 6},
+      {"pattern": "powered by discuz", "weight": 7},
+      {"pattern": "forum.php", "weight": 4},
+      {"pattern": "portal.php", "weight": 4},
+      {"pattern": "/source/plugin/", "weight": 5},
+      {"pattern": "/static/image/common/", "weight": 5}
+    ],
+    "headers": [
+      {"pattern": "set-cookie: discuz_", "weight": 5}
+    ],
+    "favicon_hashes": ["-1490212871"],
+    "api_paths": ["/forum.php", "/portal.php"],
+    "api_keywords": ["discuz"]
+  },
+  {
+    "name": "DedeCMS 🇨🇳",
+    "file_name": "DedeCMS.txt",
+    "min_score": 9,
+    "features": [
+      {"pattern": "dedecms", "weight": 6},
+      {"pattern": "织梦内容管理系统", "weight": 7},
+      {"pattern": "power by dedecms", "weight": 7},
+      {"pattern": "/plus/", "weight": 3},
+      {"pattern": "/templets/", "weight": 3}
+    ],
+    "headers": [],
+    "favicon_hashes": [],
+    "api_paths": ["/plus/list.php"],
+    "api_keywords": ["dedecms"]
+  },
+  {
+    "name": "EmpireCMS 🇨🇳",
+    "file_name": "EmpireCMS.txt",
+    "min_score": 9,
+    "features": [
+      {"pattern": "empirecms", "weight": 6},
+      {"pattern": "帝国网站管理系统", "weight": 7},
+      {"pattern": "power by empirecms", "weight": 7},
+      {"pattern": "/e/data/", "weight": 5},
+      {"pattern": "/e/public/", "weight": 4}
+    ],
+    "headers": [],
+    "favicon_hashes": [],
+    "api_paths": ["/e/data/"],
+    "api_keywords": ["empirecms"]
+  },
+  {
+    "name": "EyouCMS 🇨🇳",
+    "file_name": "EyouCMS.txt",
+    "min_score": 9,
+    "features": [
+      {"pattern": "eyoucms", "weight": 7},
+      {"pattern": "易优cms", "weight": 7},
+      {"pattern": "易优内容管理系统", "weight": 7},
+      {"pattern": "/template/pc/", "weight": 4},
+      {"pattern": "/template/mobile/", "weight": 4}
+    ],
+    "headers": [
+      {"pattern": "set-cookie: eyou_", "weight": 4}
+    ],
+    "favicon_hashes": ["-1096962304", "-1577785233"],
+    "api_paths": ["/index.php?m=api&c=Ajax&a=get_tag_member"],
+    "api_keywords": ["eyou"]
+  },
+  {
+    "name": "PbootCMS 🇨🇳",
+    "file_name": "PbootCMS.txt",
+    "min_score": 8,
+    "features": [
+      {"pattern": "pbootcms", "weight": 7},
+      {"pattern": "pboot cms", "weight": 7},
+      {"pattern": "power by pbootcms", "weight": 7}
+    ],
+    "headers": [],
+    "favicon_hashes": [],
+    "api_paths": ["/api.php", "/admin.php"],
+    "api_keywords": ["pbootcms"]
+  },
+  {
+    "name": "PHPCMS 🇨🇳",
+    "file_name": "PHPCMS.txt",
+    "min_score": 9,
+    "features": [
+      {"pattern": "phpcms v9", "weight": 7},
+      {"pattern": "powered by phpcms", "weight": 7},
+      {"pattern": "/caches/", "weight": 4},
+      {"pattern": "/statics/", "weight": 4}
+    ],
+    "headers": [
+      {"pattern": "set-cookie: phpcms", "weight": 3}
+    ],
+    "favicon_hashes": [],
+    "api_paths": ["/api.php"],
+    "api_keywords": ["phpcms"]
+  },
+  {
+    "name": "XunruiCMS 🇨🇳",
+    "file_name": "XunruiCMS.txt",
+    "min_score": 9,
+    "features": [
+      {"pattern": "迅睿cms", "weight": 7},
+      {"pattern": "finecms", "weight": 7},
+      {"pattern": "powered by finecms", "weight": 7},
+      {"pattern": "/dayrui/", "weight": 6}
+    ],
+    "headers": [],
+    "favicon_hashes": [],
+    "api_paths": ["/dayrui/"],
+    "api_keywords": ["dayrui"]
+  },
+  {
+    "name": "MetInfo 🇨🇳",
+    "file_name": "MetInfo.txt",
+    "min_score": 9,
+    "features": [
+      {"pattern": "metinfo.cn", "weight": 7},
+      {"pattern": "米拓企业建站系统", "weight": 7},
+      {"pattern": "power by metinfo", "weight": 7},
+      {"pattern": "/app/system/", "weight": 5}
+    ],
+    "headers": [],
+    "favicon_hashes": [],
+    "api_paths": ["/app/system/"],
+    "api_keywords": ["metinfo"]
+  },
+  {
+    "name": "Z-BlogPHP 🇨🇳",
+    "file_name": "ZBlog.txt",
+    "min_score": 9,
+    "features": [
+      {"pattern": "z-blogphp", "weight": 7},
+      {"pattern": "zblogphp", "weight": 7},
+      {"pattern": "powered by z-blogphp", "weight": 7},
+      {"pattern": "/zb_users/", "weight": 6},
+      {"pattern": "/zb_system/", "weight": 6}
+    ],
+    "headers": [
+      {"pattern": "set-cookie: zblog", "weight": 4}
+    ],
+    "favicon_hashes": [],
+    "api_paths": ["/zb_system/"],
+    "api_keywords": ["z-blog"]
+  }
+]
